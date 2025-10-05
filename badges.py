@@ -5,8 +5,7 @@
 Update student badge cells in a given directory1.html using Credly JSON.
 
 Usage:
-    python update_directory_badges.py students.json /path/to/directory1.html
-
+    python
 - students.json: { "Full Name": "https://www.credly.com/users/<slug>", ... }
 - Validates that the HTML <title> (stripped) is:
     "Ospreys.biz Student Directory Homepages, Badges, and Certifications"
@@ -54,7 +53,10 @@ USER_AGENT     = "Mozilla/5.0 (OspreysBadgeUpdater/1.1)"
 MAX_PAGES      = 50
 IMG_HEIGHT     = 88
 
-# Optional runtime overrides  edit here when running under JCL/USS
+# Optional runtime overrides - edit here when running under JCL/USS
+# I cannot figure out why /u/&SYSUID doesn't work.
+# Python seems to think the path is aliased from /z/&SYSUID but using
+# /z/&SYSUID fails as well.
 # If STUDENTS_PATH_OVERRIDE is empty, students.json is expected alongside this script.
 # If HTML_PATH_OVERRIDE is empty, the script will require the HTML path on the command line.
 STUDENTS_PATH_OVERRIDE = ""  # e.g. "/u/s990061/python_scripts/students.json"
@@ -74,6 +76,7 @@ def http_get_json(url: str):
             return json.loads(raw)
         except ssl.SSLError as e:
             # Give a clear hint when SSL verification or CA bundle is the problem
+            # This should be resolved with certifi, but if not, this helps.
             print(f"SSL error when fetching {url}: {e}", file=sys.stderr)
             print("Hint: install certifi in your Python environment (pip install --user certifi)" , file=sys.stderr)
             raise
@@ -268,25 +271,34 @@ def update_directory(html_path: Path, students_map: dict, verbose: bool = False)
         profile_url = name_to_url_norm.get(name_text)
         substring_used = None
         if not profile_url:
-            # Try substring matching: find all student keys that occur in the
-            # td_text_raw (normalized), pick the longest one (best specificity)
+            # Try matching full normalized name tokens only.
+            # Convert both the td text and the student keys to lowercase
+            # alphanumeric-with-spaces form and match on whole token boundaries.
+            def alnum_space(s: str) -> str:
+                return re.sub(r"[^a-z0-9]+", " ", s.casefold()).strip()
+
+            td_alnum = alnum_space(name_text)
             candidates = []
             for k_norm, url in name_to_url_norm.items():
-                if k_norm in name_text:
-                    candidates.append((len(k_norm), k_norm, url))
+                k_alnum = alnum_space(k_norm)
+                if not k_alnum:
+                    continue
+                # match whole token sequence inside the td text
+                if (" " + k_alnum + " ") in (" " + td_alnum + " "):
+                    candidates.append((len(k_alnum), k_norm, url))
             if candidates:
-                # choose the longest normalized key
+                # pick the longest token sequence for specificity
                 candidates.sort(reverse=True)
                 _, chosen_norm, profile_url = candidates[0]
                 substring_used = chosen_norm
-                print(f"DEBUG: substring match used for '{td_text_raw}' -> '{chosen_norm}'")
+                print(f"DEBUG: token match used for '{td_text_raw}' -> '{chosen_norm}'")
         if not profile_url:
             continue  # name not in our JSON; skip
 
         # Fetch fresh badges for this student
         badges = collect_badges_for_student(profile_url, badge_dir)
         if not badges:
-            # No public badges  leave cell unchanged
+            # No public badges - leave cell unchanged
             continue
 
         # Build the new badge block HTML
@@ -330,10 +342,12 @@ def main():
     #    require students.json next to the script.
     #  - If HTML_PATH_OVERRIDE is set, prefer it; otherwise look for
     #    ../public_html/directory1.html relative to the script dir.
+    # THIS DOES NOT WORK RIGHT NOW BECAUSE I CANNOT RESOLVE THE ALIASING ISSUE.
+    # HAVE TO USE RELATIVE PATHS FOR NOW.
     verbose = False
     script_dir = Path(__file__).parent.resolve()
 
-    # No aliasing logic here — use simple override/relative defaults.
+    # Uuse simple override/relative defaults.
 
     # Resolve students.json
     if STUDENTS_PATH_OVERRIDE:
@@ -346,8 +360,6 @@ def main():
         html_path = Path(HTML_PATH_OVERRIDE).expanduser().resolve()
     else:
         html_path = (script_dir.parent / 'public_html' / 'directory1.html').resolve()
-
-    # (DEBUG prints moved below so they reflect any alias fallbacks)
 
     # Print final resolved paths for diagnostics
     print(f"DEBUG: final students_json='{students_json}'")
