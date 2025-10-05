@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/u/usr/lpp/IBM/cyp/v3r13/pyz/bin/python3
 # -*- coding: utf-8 -*-
 
 """
@@ -26,6 +26,7 @@ import shutil
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+import ssl
 
 try:
     from bs4 import BeautifulSoup
@@ -33,10 +34,31 @@ except ImportError:
     print("ERROR: beautifulsoup4 is required. Install with: pip install beautifulsoup4", file=sys.stderr)
     sys.exit(1)
 
+# Build an SSL context that prefers a cert bundle from certifi if available.
+# Allow skipping verification for quick testing via BADGES_SKIP_SSL=1 env var.
+try:
+    if os.environ.get('BADGES_SKIP_SSL', '') == '1':
+        SSL_CONTEXT = ssl._create_unverified_context()
+    else:
+        import certifi
+        SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+except Exception:
+    # Fall back to system defaults if certifi isn't available.
+    if os.environ.get('BADGES_SKIP_SSL', '') == '1':
+        SSL_CONTEXT = ssl._create_unverified_context()
+    else:
+        SSL_CONTEXT = ssl.create_default_context()
+
 EXPECTED_TITLE = "Ospreys.biz Student Directory Homepages, Badges, and Certifications"
 USER_AGENT     = "Mozilla/5.0 (OspreysBadgeUpdater/1.1)"
 MAX_PAGES      = 50
 IMG_HEIGHT     = 88
+
+# Optional runtime overrides  edit here when running under JCL/USS
+# If STUDENTS_PATH_OVERRIDE is empty, students.json is expected alongside this script.
+# If HTML_PATH_OVERRIDE is empty, the script will require the HTML path on the command line.
+STUDENTS_PATH_OVERRIDE = ""  # e.g. "/u/s990061/python_scripts/students.json"
+HTML_PATH_OVERRIDE = ""      # e.g. "/u/s990061/public_html/directory1.html"
 
 def norm_name(s: str) -> str:
     """Normalize student name for matching (collapse whitespace, casefold)."""
@@ -47,10 +69,15 @@ def http_get_json(url: str):
     for attempt in range(3):
         try:
             req = Request(url, headers={"User-Agent": USER_AGENT})
-            with urlopen(req, timeout=30) as resp:
+            with urlopen(req, timeout=30, context=SSL_CONTEXT) as resp:
                 raw = resp.read().decode("utf-8")
             return json.loads(raw)
-        except (HTTPError, URLError, TimeoutError):
+        except ssl.SSLError as e:
+            # Give a clear hint when SSL verification or CA bundle is the problem
+            print(f"SSL error when fetching {url}: {e}", file=sys.stderr)
+            print("Hint: install certifi in your Python environment (pip install --user certifi)" , file=sys.stderr)
+            raise
+        except (HTTPError, URLError, TimeoutError) as e:
             if attempt == 2:
                 raise
             time.sleep(0.7 * (attempt + 1))
@@ -61,11 +88,15 @@ def http_get_bytes(url: str):
     for attempt in range(3):
         try:
             req = Request(url, headers={"User-Agent": USER_AGENT})
-            with urlopen(req, timeout=30) as resp:
+            with urlopen(req, timeout=30, context=SSL_CONTEXT) as resp:
                 data = resp.read()
                 ctype = (resp.headers.get("Content-Type") or "").lower()
             return data, ctype
-        except (HTTPError, URLError, TimeoutError):
+        except ssl.SSLError as e:
+            print(f"SSL error when fetching {url}: {e}", file=sys.stderr)
+            print("Hint: install certifi in your Python environment (pip install --user certifi)", file=sys.stderr)
+            raise
+        except (HTTPError, URLError, TimeoutError) as e:
             if attempt == 2:
                 raise
             time.sleep(0.7 * (attempt + 1))
@@ -236,7 +267,7 @@ def update_directory(html_path: Path, students_map: dict, verbose: bool = False)
         # Fetch fresh badges for this student
         badges = collect_badges_for_student(profile_url, badge_dir)
         if not badges:
-            # No public badges — leave cell unchanged
+            # No public badges  leave cell unchanged
             continue
 
         # Build the new badge block HTML
@@ -274,49 +305,52 @@ def update_directory(html_path: Path, students_map: dict, verbose: bool = False)
     return updated_count, backup
 
 def main():
-    if len(sys.argv) < 3:
-        print("Usage: python update_directory_badges.py students.json /path/to/directory1.html [--verbose]", file=sys.stderr)
-        sys.exit(2)
-
-    # crude flag parsing for optional --verbose
+    # Support both explicit overrides (useful for JCL) and a sensible
+    # relative layout for local testing. Behavior:
+    #  - If STUDENTS_PATH_OVERRIDE is set (non-empty), prefer it; otherwise
+    #    require students.json next to the script.
+    #  - If HTML_PATH_OVERRIDE is set, prefer it; otherwise look for
+    #    ../public_html/directory1.html relative to the script dir.
     verbose = False
-    args = [a for a in sys.argv[1:] if a != '--verbose']
+    script_dir = Path(__file__).parent.resolve()
 
-    # Allow relative paths provided on the command line. First try resolving
-    # against the current working directory. If that file doesn't exist, try
-    # resolving relative to the script's directory (helpful when running from
-    # another cwd but passing paths relative to the script file).
-    arg_students = Path(args[0]).expanduser()
-    arg_html = Path(args[1]).expanduser()
-    if '--verbose' in sys.argv:
-        verbose = True
+    # No aliasing logic here — use simple override/relative defaults.
 
-    def resolve_flexible(p: Path) -> Path:
-        # Prefer cwd resolution
-        p_cwd = (Path.cwd() / p).resolve()
-        if p_cwd.exists():
-            return p_cwd
-        # Then try relative to the script location
-        script_dir = Path(__file__).parent
-        p_script = (script_dir / p).resolve()
-        if p_script.exists():
-            return p_script
-        # Finally return the cwd-resolved path (so errors include full path)
-        return p_cwd
+    # Resolve students.json
+    if STUDENTS_PATH_OVERRIDE:
+        students_json = Path(STUDENTS_PATH_OVERRIDE).expanduser().resolve()
+    else:
+        students_json = (script_dir / 'students.json').resolve()
 
-    students_json = resolve_flexible(arg_students)
-    html_path = resolve_flexible(arg_html)
+    # Resolve html path
+    if HTML_PATH_OVERRIDE:
+        html_path = Path(HTML_PATH_OVERRIDE).expanduser().resolve()
+    else:
+        html_path = (script_dir.parent / 'public_html' / 'directory1.html').resolve()
 
+    # (DEBUG prints moved below so they reflect any alias fallbacks)
+
+    # Print final resolved paths for diagnostics
+    print(f"DEBUG: final students_json='{students_json}'")
+    print(f"DEBUG: final html_path='{html_path}'")
+
+    # students.json is required
     if not students_json.exists():
-        print(f"ERROR: students.json not found at '{students_json}'", file=sys.stderr)
-        sys.exit(1)
-    if not html_path.exists():
-        print(f"ERROR: HTML file not found at '{html_path}'", file=sys.stderr)
+        print(f"ERROR: students.json not found at '{students_json}' (required next to the script or set STUDENTS_PATH_OVERRIDE)", file=sys.stderr)
         sys.exit(1)
 
-    students = json.loads(students_json.read_text(encoding="utf-8"))
+    # Load students
+    try:
+        students = json.loads(students_json.read_text(encoding='utf-8'))
+    except Exception as e:
+        print(f"ERROR parsing students.json: {e}", file=sys.stderr)
+        sys.exit(1)
     if not isinstance(students, dict):
         print("ERROR: students.json must be an object mapping 'Full Name' -> 'Credly profile URL'", file=sys.stderr)
+        sys.exit(1)
+
+    if not html_path.exists():
+        print(f"ERROR: HTML file not found at '{html_path}'", file=sys.stderr)
         sys.exit(1)
 
     updated, backup = update_directory(html_path, students, verbose=verbose)
