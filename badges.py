@@ -256,11 +256,30 @@ def update_directory(html_path: Path, students_map: dict, verbose: bool = False)
 
         # First td is assumed to contain the student's full name
         first_td = tds[0]
-        name_text = norm_name(first_td.get_text(strip=True))
+        # Extract text from the first <td> and normalize it. The cell may
+        # contain extra text (professor notes, titles, etc.). Try exact
+        # normalized match first; if that fails, look for the longest
+        # students.json key that appears as a substring in the TD text.
+        td_text_raw = first_td.get_text(separator=" ", strip=True)
+        name_text = norm_name(td_text_raw)
         if not name_text:
             continue
 
         profile_url = name_to_url_norm.get(name_text)
+        substring_used = None
+        if not profile_url:
+            # Try substring matching: find all student keys that occur in the
+            # td_text_raw (normalized), pick the longest one (best specificity)
+            candidates = []
+            for k_norm, url in name_to_url_norm.items():
+                if k_norm in name_text:
+                    candidates.append((len(k_norm), k_norm, url))
+            if candidates:
+                # choose the longest normalized key
+                candidates.sort(reverse=True)
+                _, chosen_norm, profile_url = candidates[0]
+                substring_used = chosen_norm
+                print(f"DEBUG: substring match used for '{td_text_raw}' -> '{chosen_norm}'")
         if not profile_url:
             continue  # name not in our JSON; skip
 
