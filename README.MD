@@ -1,4 +1,4 @@
-# Required Library
+# Required Libraries for parsing HTML and SSL
 
 pip install --user beautifulsoup4 certifi
 
