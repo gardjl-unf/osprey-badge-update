@@ -5,7 +5,8 @@
 Update student badge cells in a given directory1.html using Credly JSON.
 
 Usage:
-    python
+    python update_directory_badges.py
+
 - students.json: { "Full Name": "https://www.credly.com/users/<slug>", ... }
 - Validates that the HTML <title> (stripped) is:
     "Ospreys.biz Student Directory Homepages, Badges, and Certifications"
@@ -76,7 +77,6 @@ def http_get_json(url: str):
             return json.loads(raw)
         except ssl.SSLError as e:
             # Give a clear hint when SSL verification or CA bundle is the problem
-            # This should be resolved with certifi, but if not, this helps.
             print(f"SSL error when fetching {url}: {e}", file=sys.stderr)
             print("Hint: install certifi in your Python environment (pip install --user certifi)" , file=sys.stderr)
             raise
@@ -271,27 +271,18 @@ def update_directory(html_path: Path, students_map: dict, verbose: bool = False)
         profile_url = name_to_url_norm.get(name_text)
         substring_used = None
         if not profile_url:
-            # Try matching full normalized name tokens only.
-            # Convert both the td text and the student keys to lowercase
-            # alphanumeric-with-spaces form and match on whole token boundaries.
-            def alnum_space(s: str) -> str:
-                return re.sub(r"[^a-z0-9]+", " ", s.casefold()).strip()
-
-            td_alnum = alnum_space(name_text)
+            # Try substring matching: find all student keys that occur in the
+            # td_text_raw (normalized), pick the longest one (best specificity)
             candidates = []
             for k_norm, url in name_to_url_norm.items():
-                k_alnum = alnum_space(k_norm)
-                if not k_alnum:
-                    continue
-                # match whole token sequence inside the td text
-                if (" " + k_alnum + " ") in (" " + td_alnum + " "):
-                    candidates.append((len(k_alnum), k_norm, url))
+                if k_norm in name_text:
+                    candidates.append((len(k_norm), k_norm, url))
             if candidates:
-                # pick the longest token sequence for specificity
+                # choose the longest normalized key
                 candidates.sort(reverse=True)
                 _, chosen_norm, profile_url = candidates[0]
                 substring_used = chosen_norm
-                print(f"DEBUG: token match used for '{td_text_raw}' -> '{chosen_norm}'")
+                print(f"DEBUG: substring match used for '{td_text_raw}' -> '{chosen_norm}'")
         if not profile_url:
             continue  # name not in our JSON; skip
 
@@ -335,6 +326,145 @@ def update_directory(html_path: Path, students_map: dict, verbose: bool = False)
     html_path.write_text(str(soup), encoding="utf-8")
     return updated_count, backup
 
+
+def insert_new_users(html_path: Path, new_users: list):
+    """
+    Insert new user rows into the directory table in `html_path`.
+    new_users is a list of objects: { 'name': str, 'profile': str(optional), 'userid': str(optional) }
+    Rows are inserted alphabetically by normalized name. If a normalized name
+    already exists, the entry is skipped. Returns number of rows inserted and backup path.
+    """
+    if not new_users:
+        return 0, None
+
+    now = time.strftime("%Y%m%d_%H%M%S")
+    backup_root = html_path.parent / "backup" / now
+    backup_root.mkdir(parents=True, exist_ok=True)
+    backup = backup_root / html_path.name
+    shutil.copyfile(html_path, backup)
+
+    soup = BeautifulSoup(html_path.read_text(encoding="utf-8-sig"), "html.parser")
+    table = soup.find("table", class_="greenbar-table") or soup.find("table")
+    if not table:
+        return 0, backup
+
+    tbody = table.find("tbody") or table
+    rows = tbody.find_all("tr")
+
+    # Helper to compute a sort key: by last name by default, but for names
+    # starting with 'Scott' we use the first two words as the key (special case).
+    def name_sort_key(name_str: str):
+        toks = [t for t in re.split(r"\s+", (name_str or "").strip()) if t]
+        if not toks:
+            return ("", "")
+        if toks[0].casefold() == 'scott' and len(toks) >= 2:
+            # special-case: sort by 'scott <second>' so 'Scott Piersall' groups correctly
+            return ((toks[0] + ' ' + toks[1]).casefold(), "")
+        # normal: sort by last name then by rest
+        last = toks[-1].casefold()
+        rest = " ".join(toks[:-1]).casefold()
+        return (last, rest)
+
+    # Build list of existing rows as tuples: (sort_key, normalized_name, tr)
+    existing = []
+    for tr in rows:
+        tds = tr.find_all("td")
+        if not tds:
+            continue
+        display = tds[0].get_text(separator=" ", strip=True)
+        name_norm = norm_name(display)
+        sort_key = name_sort_key(display)
+        existing.append((sort_key, name_norm, tr))
+
+    inserted_count = 0
+
+    # Helper to create a new <tr> for a student
+    def make_row_for(soup_local, name, userid=None):
+        tr = soup_local.new_tag("tr")
+        td_name = soup_local.new_tag("td", align="CENTER")
+        if userid:
+            a = soup_local.new_tag("a", href=f"https://www.ospreys.biz/~{userid}")
+            a.string = name
+            td_name.append(a)
+        else:
+            td_name.string = name
+        td_content = soup_local.new_tag("td", align="CENTER")
+        td_content.string = "Professional Resume and Code Samples"
+        td_badges = soup_local.new_tag("td")
+        tr.append(td_name)
+        tr.append(td_content)
+        tr.append(td_badges)
+        return tr
+
+    # Insert each new user into the correct alphabetical position
+    for nu in new_users:
+        name = (nu.get("name") or "").strip()
+        if not name:
+            continue
+        name_norm = norm_name(name)
+        # If present already, update the existing row (userid or anchor text)
+        match_index = None
+        for idx, (_, en_norm, tr) in enumerate(existing):
+            if name_norm == en_norm:
+                match_index = idx
+                break
+
+        if match_index is not None:
+            # Update the existing row's link or text if userid/profile provided
+            existing_tr = existing[match_index][1]
+            tds_exist = existing_tr.find_all("td")
+            if tds_exist:
+                td_name = tds_exist[0]
+                a = td_name.find("a")
+                userid = nu.get("userid")
+                profile = nu.get("profile")
+                if userid:
+                    href = f"https://www.ospreys.biz/~{userid}"
+                    if a:
+                        if a.get("href") != href:
+                            a["href"] = href
+                            print(f"NOTICE: updated userid for existing user '{name}' to '{userid}'. Please move this entry from 'new_users' into 'existing_users' in students.json to make the change permanent.")
+                    else:
+                        a_new = soup.new_tag("a", href=href)
+                        a_new.string = name
+                        td_name.clear()
+                        td_name.append(a_new)
+                        print(f"NOTICE: added userid link for existing user '{name}' -> '{userid}'. Please move this entry from 'new_users' into 'existing_users' in students.json to make the change permanent.")
+                else:
+                    # No userid provided, but we might update anchor text normalization
+                    if a and a.string != name:
+                        a.string = name
+                        print(f"NOTICE: normalized name text updated for existing user '{name}'. Please move this entry from 'new_users' into 'existing_users' in students.json to make the change permanent.")
+                # If profile provided (credly), inform the operator to update students.json if desired
+                if profile:
+                    print(f"NOTICE: new entry provides a Credly profile for existing user '{name}'. Please add/update this mapping under 'existing_users' in students.json: {profile}")
+
+            # don't insert a duplicate row
+            continue
+
+        userid = nu.get("userid")
+        new_tr = make_row_for(soup, name, userid=userid)
+
+        # find insertion point using sort keys
+        new_sort = name_sort_key(name)
+        placed = False
+        for i, (ex_sort, _, tr) in enumerate(existing):
+            if new_sort < ex_sort:
+                tr.insert_before(new_tr)
+                existing.insert(i, (new_sort, name_norm, new_tr))
+                placed = True
+                break
+        if not placed:
+            # append to tbody
+            tbody.append(new_tr)
+            existing.append((name_norm, new_tr))
+
+        inserted_count += 1
+
+    # Write modified HTML back
+    html_path.write_text(str(soup), encoding="utf-8")
+    return inserted_count, backup
+
 def main():
     # Support both explicit overrides (useful for JCL) and a sensible
     # relative layout for local testing. Behavior:
@@ -347,7 +477,7 @@ def main():
     verbose = False
     script_dir = Path(__file__).parent.resolve()
 
-    # Uuse simple override/relative defaults.
+    # No aliasing logic here  use simple override/relative defaults.
 
     # Resolve students.json
     if STUDENTS_PATH_OVERRIDE:
@@ -361,6 +491,8 @@ def main():
     else:
         html_path = (script_dir.parent / 'public_html' / 'directory1.html').resolve()
 
+    # (DEBUG prints moved below so they reflect any alias fallbacks)
+
     # Print final resolved paths for diagnostics
     print(f"DEBUG: final students_json='{students_json}'")
     print(f"DEBUG: final html_path='{html_path}'")
@@ -370,20 +502,43 @@ def main():
         print(f"ERROR: students.json not found at '{students_json}' (required next to the script or set STUDENTS_PATH_OVERRIDE)", file=sys.stderr)
         sys.exit(1)
 
-    # Load students
+    # Load students (support legacy mapping or enhanced shape)
     try:
-        students = json.loads(students_json.read_text(encoding='utf-8'))
+        students_raw = json.loads(students_json.read_text(encoding='utf-8'))
     except Exception as e:
         print(f"ERROR parsing students.json: {e}", file=sys.stderr)
         sys.exit(1)
-    if not isinstance(students, dict):
-        print("ERROR: students.json must be an object mapping 'Full Name' -> 'Credly profile URL'", file=sys.stderr)
+
+    # Enhanced shape: { "existing_users": {name: url}, "new_users": [ {name, profile?, userid?}, ... ] }
+    students = {}
+    new_users = []
+    if isinstance(students_raw, dict) and ("existing_users" in students_raw or "new_users" in students_raw):
+        existing = students_raw.get("existing_users") or {}
+        if not isinstance(existing, dict):
+            print("ERROR: 'existing_users' must be an object mapping names to profile URLs", file=sys.stderr)
+            sys.exit(1)
+        students.update(existing)
+        new_users = students_raw.get("new_users") or []
+        if not isinstance(new_users, list):
+            print("ERROR: 'new_users' must be an array of objects", file=sys.stderr)
+            sys.exit(1)
+    elif isinstance(students_raw, dict):
+        # legacy mapping
+        students = students_raw
+    else:
+        print("ERROR: students.json must be an object mapping 'Full Name' -> 'Credly profile URL' or the enhanced shape", file=sys.stderr)
         sys.exit(1)
 
     if not html_path.exists():
         print(f"ERROR: HTML file not found at '{html_path}'", file=sys.stderr)
         sys.exit(1)
 
+    # If there are new users, insert them first (this creates its own backup)
+    if new_users:
+        inserted, ins_backup = insert_new_users(html_path, new_users)
+        print(f"Inserted {inserted} new user row(s). Backup saved to: {ins_backup}")
+
+    # Merge again in case rows were added; use the students mapping for badge updates
     updated, backup = update_directory(html_path, students, verbose=verbose)
     print(f"Updated {updated} row(s). Backup saved to: {backup}")
 

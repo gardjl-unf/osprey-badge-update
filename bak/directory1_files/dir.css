@@ -1,0 +1,138 @@
+/* tokens */
+:root{
+  --bg:#212121; 
+  --text:#eee; 
+  --muted:#b9c0cb;
+  --accent:#0f62fe;          /* link blue */
+  --line:#2f3338; 
+  --panel:#26292f; 
+  --th:#1d2025;
+  --stripe1:#233125; 
+  --stripe2:#1f2a1f;          /* subtle "greenbar" */
+  --radius:12px;
+  --rail-green:#1a7f3a;
+  --rail-amber:#7a4a00;
+  --phosphor:#9afc7c; 
+  --glow1:#164; 
+  --glow2:#0a2;
+}
+:root[data-phosphor="amber"]{
+  --stripe1:#31281f; 
+  --stripe2:#2b231c; 
+  --phosphor:#ffc76b; 
+  --glow1:#7a4a00; 
+  --glow2:#3b2200;         /* warm amber variant */
+}
+
+/* base */
+*{ 
+  box-sizing:border-box 
+}
+html,body{ 
+  margin:5 
+}
+body{
+  background:var(--bg); 
+  color:var(--text);
+  font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+}
+
+/* header */
+.site-header{ 
+  background:#1d2025; 
+  border-bottom:1px solid var(--line);
+}
+.site-header .bar{ 
+  display:flex; 
+  align-items:center; 
+  gap:12px; 
+  padding:14px 18px }
+.site-header img{ 
+  height:100px; 
+  width:auto; 
+  display:block }
+.site-header h1{ 
+  margin:0; 
+  font-weight:800; 
+  font-size:clamp(1.6rem,2vw+1rem,2.4rem);
+  color: var(--phosphor);
+  text-shadow: 0 0 .35em var(--glow1), 0 0 .15em var(--glow2);
+}
+.site-header a{ color:var(--accent) }
+
+/* toggle */
+/* small chip behind the toggle (same look as homepage header) */
+.toggle-chip{
+  background: rgba(0,0,0,.35);
+  backdrop-filter: blur(2px);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 12px;
+  padding: 8px 12px;
+  display: flex; align-items: center; gap: 10px;
+  color: #ddd; font-size: 13px;
+}
+
+/* push chip to right side of header bar */
+.site-header .bar .toggle-chip{ margin-left: auto; }
+
+/* simple toggle (same as front page) */
+.switch{ position:relative; width:36px; height:18px; }
+.switch input{ appearance:none; -webkit-appearance:none; width:0; height:0; }
+.slider{
+  position:absolute; inset:0; cursor:pointer; border-radius:999px;
+  background: var(--rail-green); transition: background .2s;
+}
+.switch input:checked + .slider{ background: var(--rail-amber); }
+.slider::before{
+  content:""; position:absolute; width:14px; height:14px; left:2px; top:2px;
+  background:#fff; border-radius:50%; box-shadow:0 1px 3px rgba(0,0,0,.4);
+  transition: transform .2s;
+}
+.switch input:checked + .slider::before{ transform: translateX(16px); }
+
+/* toggle track colors  same as homepage */
+.toggle-chip .switch .slider{
+  background: var(--rail-green, #1a7f3a);
+}
+.toggle-chip .switch input:checked + .slider{
+  background: var(--rail-amber, #7a4a00);
+}
+
+
+/* labels */
+.label-left{ opacity: .9; }
+.label-right{ font-weight: 600; min-width: 4ch; text-align: left; }
+
+/* layout */
+.container{ width:min(1200px,92vw); margin:0 auto; padding:18px }
+
+/* table */
+.greenbar-table{
+  width:100%; 
+  border-collapse:separate; 
+  border-spacing:0; 
+  overflow:hidden;
+  background:var(--panel); 
+  border:1px solid var(--line); 
+  border-radius:var(--radius);
+}
+.greenbar-table thead th{
+  padding:14px 16px; 
+  background:var(--th); 
+  color:var(--muted);
+  text-align:left; 
+  font-weight:700; 
+  border-bottom:1px solid var(--line);
+}
+.greenbar-table tbody td{ padding:14px 16px; border-bottom:1px solid var(--line) }
+.greenbar-table tbody tr:nth-child(odd)  td{ background:var(--stripe1) }
+.greenbar-table tbody tr:nth-child(even) td{ background:var(--stripe2) }
+.greenbar-table tbody tr:hover td{ filter:brightness(1.08) }
+
+.greenbar-table a{ color:var(--accent); text-decoration:none; font-weight:700 }
+.greenbar-table a:hover{ text-decoration:underline }
+
+
+
+/* small helpers */
+.subtle{ color:var(--muted) }

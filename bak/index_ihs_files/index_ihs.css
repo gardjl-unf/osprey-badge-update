@@ -1,0 +1,165 @@
+:root{
+    --phosphor:#9afc7c; 
+    --glow1:#164; 
+    --glow2:#0a2;
+    --bg:#212121; 
+    --text:#eee;
+    --rail-green:#1a7f3a;
+    --rail-amber:#7a4a00;
+}
+:root[data-phosphor="amber"]{
+    --phosphor:#ffc76b; 
+    --glow1:#7a4a00; 
+    --glow2:#3b2200;
+}
+
+/* reset */
+html,body{
+    margin:0;
+    padding:0;}
+*,*::before,*::after{
+    box-sizing:border-box;
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+}
+
+body{
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    min-height:100vh;text-align:center;
+}
+
+/* toggle header */
+header{
+    position:fixed;
+    top:10px;
+    right:12px;
+    background:rgba(0,0,0,.35);
+    backdrop-filter:blur(2px);
+    border:1px solid rgba(255,255,255,.12);
+    border-radius:12px;
+    padding:8px 12px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    z-index:10;color:#ddd;
+}
+header .label{
+    font-size:13px;
+    opacity:.9;
+    margin:0;}
+    .switch{position:relative;width:36px;height:18px;}
+    .switch input{appearance:none;-webkit-appearance:none;width:0;height:0;}
+    .slider{
+    position:absolute;inset:0;cursor:pointer;border-radius:999px;
+    background:var(--rail-green);transition:background .2s;
+    }
+.switch input:checked + .slider{ background:var(--rail-amber); }
+.slider::before{
+  content:"";position:absolute;height:14px;width:14px;left:2px;top:2px;
+  background:#fff;border-radius:50%;transition:transform .2s;
+  box-shadow:0 1px 3px rgba(0,0,0,.4);
+}
+.switch input:checked + .slider::before{transform:translateX(16px);}
+
+/* text */
+h1{
+    font-size:48px;
+    font-weight:600;
+    margin:8px 0 16px;
+    color:#fff;
+}
+p{
+    font-size:18px;
+    line-height:1.6;
+    max-width:720px;
+    margin:0 auto 16px;
+    color:#fff;
+    margin-left:5px;
+    margin-right:5px;
+}
+.content{
+    text-align:left;
+}
+.highlight,a{
+    color:#0071e3;
+    font-weight:600;
+    text-shadow:none;}
+a:hover{
+    text-decoration:underline;
+}
+
+/* Hide paragraphs until they type (reserve layout via min-height JS) */
+p[data-typewriter]{ 
+    visibility: hidden; 
+}
+
+/* Dynamic ASCII shimmer based on phosphor */
+pre.crt-shimmer {
+  margin: 0 0 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  white-space: pre;
+  display: inline-block;
+  isolation: isolate;
+  contain: paint;
+  background: linear-gradient(
+    90deg,
+    #ffffff 0%,
+    color-mix(in srgb, var(--phosphor) 85%, #ffffff 15%) 10%,
+    var(--phosphor) 50%,
+    color-mix(in srgb, var(--phosphor) 85%, #000000 15%) 90%,
+    #ffffff 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.1s linear infinite;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+@keyframes shimmer {
+  0%   { background-position: 0% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.terminal{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  color:var(--phosphor);
+  text-shadow:0 0 .35em var(--glow1), 0 0 .15em var(--glow2);
+}
+
+/* blinking block cursor (CSS rectangle, no glyph issues) */
+.caret{ position: relative; }
+.caret::after{
+    content:"";
+    display:inline-block;
+    width:0.6ch;
+    height:1em;
+    background: currentColor;
+    margin-left:.1ch;
+    vertical-align: -.15em;
+    animation: blink .9s steps(1,end) infinite;
+}
+@keyframes blink{ 50%{ opacity:0 } }
+
+/* scanlines */
+body::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  background:repeating-linear-gradient(to bottom,rgba(255,255,255,.04)0,rgba(255,255,255,.04)1px,transparent 2px,transparent 4px);
+  mix-blend-mode:soft-light;
+  opacity:.2;
+  pointer-events:none;
+}
+@media(prefers-reduced-motion:reduce){
+    pre{
+        animation:none
+    }
+    body::before{
+        display:none
+        }
+}

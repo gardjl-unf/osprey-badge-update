@@ -8,12 +8,13 @@
     "Brennan Azer": "https://www.credly.com/users/brennan-azer",
     "Olivia Chrisley": "https://www.credly.com/users/olivia-chrisley",
     "Caden Christell": "https://www.credly.com/users/caden-christel",
-    "Sean Brodbeck": "https://www.credly.com/users/sean-brodbeck",
-    "Caden Christel": "https://www.credly.com/users/caden-christel"
+    "Sean Brodbeck": "https://www.credly.com/users/sean-brodbeck"
   },
   "new_users": [
     {
-        
+      "name": "Caden Christel",
+      "profile": "https://www.credly.com/users/caden-christel",
+      "userid": "s990091"
     }
   ]
 }
